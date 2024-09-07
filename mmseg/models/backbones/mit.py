@@ -14,7 +14,7 @@ from mmengine.model.weight_init import (constant_init, normal_init,
 
 from mmseg.registry import MODELS
 from ..utils import PatchEmbed, nchw_to_nlc, nlc_to_nchw
-
+# hello
 
 class MixFFN(BaseModule):
     """An implementation of MixFFN of Segformer.
