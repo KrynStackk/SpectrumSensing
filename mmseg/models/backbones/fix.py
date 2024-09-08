@@ -431,18 +431,19 @@ class Thinh(BaseModule):
 
         # Build the stages
         for i in range(num_stages):
-            # Modify in_channels to 24 if the input has 24 channels
             if i == 0:
-                patch_embed = StemConv(in_channels=24, out_channels=embed_dims[0], norm_cfg=norm_cfg)
+                # Stem block for the first stage
+                patch_embed = StemConv(in_channels, embed_dims[0], norm_cfg=norm_cfg)
             else:
+                # Overlap patch embedding for subsequent stages
                 patch_embed = OverlapPatchEmbed(
                     patch_size=3 if i != 0 else 7,
                     stride=2,
                     in_channels=embed_dims[i - 1],
                     embed_dim=embed_dims[i],
                     norm_cfg=norm_cfg,
-                    kernel_size=3,
-                    dilation=1
+                    kernel_size=3,  # kernel size based on multi-scale approach
+                    dilation=1  # Default dilation, can be adjusted if needed
                 )
 
             # Multi-Scale Convolutional Attention blocks for each stage
