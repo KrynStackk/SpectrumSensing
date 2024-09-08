@@ -377,7 +377,6 @@ class OverlapPatchEmbed(BaseModule):
 
 
 @MODELS.register_module()
-@MODELS.register_module()
 class Thinh(BaseModule):
     """Modified Multi-Scale Convolutional Attention Network (MSCAN) backbone.
 
