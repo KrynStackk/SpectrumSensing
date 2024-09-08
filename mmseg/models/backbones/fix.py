@@ -112,116 +112,227 @@ class StemConv(BaseModule):
         return x, H, W
 
 
-
-class MSCAAttention(nn.Module):
-    """Attention Module in Multi-Scale Convolutional Attention Module (MSCA).
+class MSCAAttention(BaseModule):
+    """Modified MSCA Attention Module based on the provided diagram.
 
     Args:
         channels (int): The dimension of channels.
-        kernel_sizes (list): The size of attention kernel.
-            Defaults: [5, [1, 7], [1, 11], [1, 21]].
-        paddings (list): The number of
-            corresponding padding value in attention module.
-            Defaults: [2, [0, 3], [0, 5], [0, 10]].
+        kernel_sizes (list): The size of attention kernel. Defaults: [3, 3, 3, 5].
+        rates (list): The dilation rates for each branch. Defaults: [3, 5, 7].
+        paddings (list): The corresponding padding value in attention module.
+            Defaults: [1, 2, 3].
     """
 
-    def __init__(self, channels):
-        super(MSCAAttention, self).__init__()
-        
-        # Thay thế kernel 1x7, 1x11, 1x21 thành 3x3 với rate lần lượt 1, 3, 5
-        self.dwconv_3 = nn.Conv2d(channels, channels, kernel_size=3, padding=1, dilation=1, groups=channels)
-        self.dwconv_7 = nn.Conv2d(channels, channels, kernel_size=3, padding=3, dilation=3, groups=channels)
-        self.dwconv_11 = nn.Conv2d(channels, channels, kernel_size=3, padding=5, dilation=5, groups=channels)
-        
-        # Thay thế kernel 7x1, 11x1, 21x1 thành 1x1
-        self.conv_1x1 = nn.Conv2d(channels, channels, kernel_size=1, padding=0)
-        
-        # Convolution cuối cùng sau khi cộng các kết quả
-        self.conv_final = nn.Conv2d(channels, channels, kernel_size=1)
-    
+    def __init__(self,
+                 channels,
+                 kernel_sizes=[3, 3, 3, 5],
+                 rates=[3, 5, 7],
+                 paddings=[1, 2, 3]):
+        super().__init__()
+        # First branch with 1x1 -> 3x3 with dilation rate 3
+        self.branch1 = nn.Sequential(
+            nn.Conv2d(channels, channels, kernel_size=1),
+            nn.Conv2d(channels, channels, kernel_size=kernel_sizes[0], 
+                      padding=paddings[0], dilation=rates[0], groups=channels)
+        )
+        # Second branch with 1x1 -> 3x3 with dilation rate 5
+        self.branch2 = nn.Sequential(
+            nn.Conv2d(channels, channels, kernel_size=1),
+            nn.Conv2d(channels, channels, kernel_size=kernel_sizes[1], 
+                      padding=paddings[1], dilation=rates[1], groups=channels)
+        )
+        # Third branch with 1x1 -> 3x3 with dilation rate 7
+        self.branch3 = nn.Sequential(
+            nn.Conv2d(channels, channels, kernel_size=1),
+            nn.Conv2d(channels, channels, kernel_size=kernel_sizes[2], 
+                      padding=paddings[2], dilation=rates[2], groups=channels)
+        )
+        # Fourth branch with direct 5x5 convolution
+        self.branch4 = nn.Conv2d(channels, channels, kernel_size=5, padding=2, groups=channels)
+
+        # Mixing branch outputs
+        self.conv1x1 = nn.Conv2d(channels, channels, kernel_size=1)
+
     def forward(self, x):
+        """Forward function."""
+        # Clone the input for attention
         u = x.clone()
 
-        # Multi-Scale Feature extraction
-        attn_3 = self.dwconv_3(x)
-        attn_7 = self.dwconv_7(x)
-        attn_11 = self.dwconv_11(x)
+        # Apply each branch and sum the outputs
+        attn = self.branch1(x) + self.branch2(x) + self.branch3(x) + self.branch4(x)
 
-        # Kết hợp kết quả
-        attn = attn_3 + attn_7 + attn_11
+        # Final 1x1 convolution to mix the channels
+        attn = self.conv1x1(attn)
 
-        # Channel Mixing
-        attn = self.conv_final(attn)
-
-        # Convolutional Attention
+        # Multiply by the original input for attention effect
         x = attn * u
 
         return x
 
 
-class MSCASpatialAttention(nn.Module):
-    """Spatial Attention Module in Multi-Scale Convolutional Attention Module (MSCA).
+
+class MSCASpatialAttention(BaseModule):
+    """Modified Spatial Attention Module in Multi-Scale Convolutional Attention Module (MSCA).
+
+    Args:
+        in_channels (int): The dimension of channels.
+        attention_kernel_sizes (list): The size of attention kernel. Defaults: [3, 3, 3, 5].
+        attention_kernel_paddings (list): The corresponding padding values for each kernel size.
+        dilation_rates (list): The dilation rates for each branch. Defaults: [3, 5, 7].
+        act_cfg (dict): Config dict for activation layer in block.
+            Default: dict(type='GELU').
     """
 
-    def __init__(self, in_channels):
-        super(MSCASpatialAttention, self).__init__()
-        self.proj_1 = nn.Conv2d(in_channels, in_channels, 1)
-        self.activation = nn.GELU()
-        self.spatial_gating_unit = MSCAAttention(in_channels)
-        self.proj_2 = nn.Conv2d(in_channels, in_channels, 1)
+    def __init__(self,
+                 in_channels,
+                 attention_kernel_sizes=[3, 3, 3, 5],
+                 attention_kernel_paddings=[1, 2, 3, 2],
+                 dilation_rates=[3, 5, 7],
+                 act_cfg=dict(type='GELU')):
+        super().__init__()
+        # Initialize the projection layer
+        self.proj_1 = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.activation = build_activation_layer(act_cfg)
+
+        # Attention branches
+        self.branch1 = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, kernel_size=1),
+            nn.Conv2d(in_channels, in_channels, kernel_size=attention_kernel_sizes[0],
+                      padding=attention_kernel_paddings[0], dilation=dilation_rates[0], groups=in_channels)
+        )
+        self.branch2 = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, kernel_size=1),
+            nn.Conv2d(in_channels, in_channels, kernel_size=attention_kernel_sizes[1],
+                      padding=attention_kernel_paddings[1], dilation=dilation_rates[1], groups=in_channels)
+        )
+        self.branch3 = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, kernel_size=1),
+            nn.Conv2d(in_channels, in_channels, kernel_size=attention_kernel_sizes[2],
+                      padding=attention_kernel_paddings[2], dilation=dilation_rates[2], groups=in_channels)
+        )
+        self.branch4 = nn.Conv2d(in_channels, in_channels, kernel_size=attention_kernel_sizes[3], 
+                                 padding=attention_kernel_paddings[3], groups=in_channels)
+
+        # Final 1x1 convolution after mixing the branches
+        self.proj_2 = nn.Conv2d(in_channels, in_channels, kernel_size=1)
 
     def forward(self, x):
+        """Forward function."""
+
+        # Store the original input for skip connection
         shortcut = x.clone()
+
+        # Apply the first projection and activation
         x = self.proj_1(x)
         x = self.activation(x)
-        x = self.spatial_gating_unit(x)
+
+        # Apply the attention branches
+        x = self.branch1(x) + self.branch2(x) + self.branch3(x) + self.branch4(x)
+
+        # Final projection and skip connection
         x = self.proj_2(x)
-        x = x + shortcut
+        x = x + shortcut  # Skip connection to retain input information
+
         return x
 
 
-class MSCABlock(nn.Module):
-    """Basic Multi-Scale Convolutional Attention Block.
+
+class MSCABlock(BaseModule):
+    """Modified Multi-Scale Convolutional Attention Block.
+
+    This block uses both spatial and channel attention with different dilation rates and kernel sizes, based on the previous modified classes.
+
+    Args:
+        channels (int): The dimension of channels.
+        attention_kernel_sizes (list): The size of attention kernel.
+            Defaults: [3, 3, 3, 5].
+        attention_kernel_paddings (list): Padding for each attention kernel.
+            Defaults: [1, 2, 3, 2].
+        dilation_rates (list): Dilation rates for each attention branch.
+            Defaults: [3, 5, 7].
+        mlp_ratio (float): The ratio of hidden feature dimension in MLP to the input dimension.
+            Defaults: 4.0.
+        drop (float): The dropout rate.
+            Defaults: 0.0.
+        drop_path (float): The ratio of drop paths for stochastic depth.
+            Defaults: 0.0.
+        act_cfg (dict): Configuration for activation layer.
+            Default: dict(type='GELU').
+        norm_cfg (dict): Config dict for normalization layer.
+            Defaults: dict(type='SyncBN', requires_grad=True).
     """
 
-    def __init__(self, channels, mlp_ratio=4., drop=0., drop_path=0.):
-        super(MSCABlock, self).__init__()
-        self.norm1 = nn.BatchNorm2d(channels)
-        self.attn = MSCASpatialAttention(channels)
-        self.drop_path = nn.Identity()
-        self.norm2 = nn.BatchNorm2d(channels)
-        mlp_hidden_channels = int(channels * mlp_ratio)
-        self.mlp = nn.Sequential(
-            nn.Conv2d(channels, mlp_hidden_channels, 1),
-            nn.GELU(),
-            nn.Conv2d(mlp_hidden_channels, channels, 1)
-        )
-        self.layer_scale_1 = nn.Parameter(torch.ones(channels) * 1e-2)
-        self.layer_scale_2 = nn.Parameter(torch.ones(channels) * 1e-2)
+    def __init__(self,
+                 channels,
+                 attention_kernel_sizes=[3, 3, 3, 5],
+                 attention_kernel_paddings=[1, 2, 3, 2],
+                 dilation_rates=[3, 5, 7],
+                 mlp_ratio=4.0,
+                 drop=0.0,
+                 drop_path=0.0,
+                 act_cfg=dict(type='GELU'),
+                 norm_cfg=dict(type='SyncBN', requires_grad=True)):
+        super().__init__()
+        # Normalization layers before attention and MLP layers
+        self.norm1 = build_norm_layer(norm_cfg, channels)[1]
+        self.norm2 = build_norm_layer(norm_cfg, channels)[1]
 
-    def forward(self, x):
-        B, C, H, W = x.size()
-        x = x.permute(0, 2, 3, 1).contiguous()
-        x = x.permute(0, 3, 1, 2)
+        # Multi-Scale Convolutional Spatial Attention (updated MSCA)
+        self.attn = MSCASpatialAttention(
+            in_channels=channels,
+            attention_kernel_sizes=attention_kernel_sizes,
+            attention_kernel_paddings=attention_kernel_paddings,
+            dilation_rates=dilation_rates,
+            act_cfg=act_cfg
+        )
+
+        # Drop path for stochastic depth regularization
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+
+        # Multi-Layer Perceptron (MLP) with hidden channels based on the ratio
+        mlp_hidden_channels = int(channels * mlp_ratio)
+        self.mlp = Mlp(
+            in_features=channels,
+            hidden_features=mlp_hidden_channels,
+            act_cfg=act_cfg,
+            drop=drop
+        )
+
+        # Layer scales for weighting
+        layer_scale_init_value = 1e-2
+        self.layer_scale_1 = nn.Parameter(layer_scale_init_value * torch.ones(channels), requires_grad=True)
+        self.layer_scale_2 = nn.Parameter(layer_scale_init_value * torch.ones(channels), requires_grad=True)
+
+    def forward(self, x, H, W):
+        """Forward function."""
+        B, N, C = x.shape  # Batch size, sequence length, channels
+
+        # Reshape to (B, C, H, W) for convolutions
+        x = x.permute(0, 2, 1).view(B, C, H, W)
+
+        # Apply MSCA spatial attention
         x = x + self.drop_path(self.layer_scale_1.unsqueeze(-1).unsqueeze(-1) * self.attn(self.norm1(x)))
+
+        # Apply MLP block
         x = x + self.drop_path(self.layer_scale_2.unsqueeze(-1).unsqueeze(-1) * self.mlp(self.norm2(x)))
+
+        # Reshape back to (B, N, C)
+        x = x.view(B, C, N).permute(0, 2, 1)
+
         return x
 
 
 class OverlapPatchEmbed(BaseModule):
-    """Image to Patch Embedding.
+    """Modified Image to Patch Embedding.
 
     Args:
-        patch_size (int): The patch size.
-            Defaults: 7.
-        stride (int): Stride of the convolutional layer.
-            Default: 4.
-        in_channels (int): The number of input channels.
-            Defaults: 3.
-        embed_dims (int): The dimensions of embedding.
-            Defaults: 768.
-        norm_cfg (dict): Config dict for normalization layer.
-            Defaults: dict(type='SyncBN', requires_grad=True).
+        patch_size (int): The patch size. Defaults: 7.
+        stride (int): Stride of the convolutional layer. Defaults: 4.
+        in_channels (int): The number of input channels. Defaults: 3.
+        embed_dims (int): The dimensions of embedding. Defaults: 768.
+        norm_cfg (dict): Config for normalization layer. Defaults: dict(type='SyncBN', requires_grad=True).
+        kernel_size (int): The kernel size for the embedding convolution. Defaults: 7.
+        dilation (int): The dilation rate for convolution. Defaults: 1.
     """
 
     def __init__(self,
@@ -229,61 +340,63 @@ class OverlapPatchEmbed(BaseModule):
                  stride=4,
                  in_channels=3,
                  embed_dim=768,
-                 norm_cfg=dict(type='SyncBN', requires_grad=True)):
+                 norm_cfg=dict(type='SyncBN', requires_grad=True),
+                 kernel_size=7,
+                 dilation=1):
         super().__init__()
 
+        # Convolution for patch embedding with optional dilation
         self.proj = nn.Conv2d(
             in_channels,
             embed_dim,
-            kernel_size=patch_size,
+            kernel_size=kernel_size,
             stride=stride,
-            padding=patch_size // 2)
+            padding=(kernel_size // 2),
+            dilation=dilation)
+
+        # Normalization layer for the output embedding
         self.norm = build_norm_layer(norm_cfg, embed_dim)[1]
 
     def forward(self, x):
-        """Forward function."""
+        """Forward function for patch embedding."""
 
+        # Apply convolution to create the patch embeddings
         x = self.proj(x)
+
+        # Get the spatial dimensions of the output
         _, _, H, W = x.shape
+
+        # Apply normalization
         x = self.norm(x)
 
-        x = x.flatten(2).transpose(1, 2)
+        # Flatten the output into patch sequences for the next layers
+        x = x.flatten(2).transpose(1, 2)  # (B, C, H*W) -> (B, H*W, C)
 
         return x, H, W
 
 
+
+@MODELS.register_module()
 @MODELS.register_module()
 class Thinh(BaseModule):
-    """SegNeXt Multi-Scale Convolutional Attention Network (MCSAN) backbone.
+    """Modified Multi-Scale Convolutional Attention Network (MSCAN) backbone.
 
-    This backbone is the implementation of `SegNeXt: Rethinking
-    Convolutional Attention Design for Semantic
-    Segmentation <https://arxiv.org/abs/2209.08575>`_.
-    Inspiration from https://github.com/visual-attention-network/segnext.
+    This backbone is based on multi-scale convolutional attention blocks and flexible patch embeddings.
 
     Args:
         in_channels (int): The number of input channels. Defaults: 3.
-        embed_dims (list[int]): Embedding dimension.
-            Defaults: [64, 128, 256, 512].
-        mlp_ratios (list[int]): Ratio of mlp hidden dim to embedding dim.
-            Defaults: [4, 4, 4, 4].
+        embed_dims (list[int]): Embedding dimension for each stage. Defaults: [64, 128, 256, 512].
+        mlp_ratios (list[int]): Ratio of mlp hidden dim to embedding dim. Defaults: [4, 4, 4, 4].
         drop_rate (float): Dropout rate. Defaults: 0.
         drop_path_rate (float): Stochastic depth rate. Defaults: 0.
-        depths (list[int]): Depths of each Swin Transformer stage.
-            Default: [3, 4, 6, 3].
-        num_stages (int): MSCAN stages. Default: 4.
-        attention_kernel_sizes (list): Size of attention kernel in
-            Attention Module (Figure 2(b) of original paper).
-            Defaults: [5, [1, 7], [1, 11], [1, 21]].
-        attention_kernel_paddings (list): Size of attention paddings
-            in Attention Module (Figure 2(b) of original paper).
-            Defaults: [2, [0, 3], [0, 5], [0, 10]].
-        norm_cfg (dict): Config of norm layers.
-            Defaults: dict(type='SyncBN', requires_grad=True).
-        pretrained (str, optional): model pretrained path.
-            Default: None.
-        init_cfg (dict or list[dict], optional): Initialization config dict.
-            Default: None.
+        depths (list[int]): Depths of each stage (number of blocks per stage). Default: [3, 4, 6, 3].
+        num_stages (int): Number of stages in the network. Default: 4.
+        attention_kernel_sizes (list): Size of attention kernel in the MSCA module. Defaults: [3, 3, 3, 5].
+        attention_kernel_paddings (list): Padding sizes for the attention kernels. Defaults: [1, 2, 3, 2].
+        dilation_rates (list): Dilation rates for the attention branches. Defaults: [3, 5, 7].
+        norm_cfg (dict): Config for normalization layers. Defaults: dict(type='SyncBN', requires_grad=True).
+        pretrained (str, optional): Path to pretrained weights. Default: None.
+        init_cfg (dict or list[dict], optional): Initialization config dict. Default: None.
     """
 
     def __init__(self,
@@ -294,9 +407,9 @@ class Thinh(BaseModule):
                  drop_path_rate=0.,
                  depths=[3, 4, 6, 3],
                  num_stages=4,
-                 attention_kernel_sizes=[5, [1, 7], [1, 11], [1, 21]],
-                 attention_kernel_paddings=[2, [0, 3], [0, 5], [0, 10]],
-                 act_cfg=dict(type='GELU'),
+                 attention_kernel_sizes=[3, 3, 3, 5],
+                 attention_kernel_paddings=[1, 2, 3, 2],
+                 dilation_rates=[3, 5, 7],
                  norm_cfg=dict(type='SyncBN', requires_grad=True),
                  pretrained=None,
                  init_cfg=None):
@@ -305,8 +418,7 @@ class Thinh(BaseModule):
         assert not (init_cfg and pretrained), \
             'init_cfg and pretrained cannot be set at the same time'
         if isinstance(pretrained, str):
-            warnings.warn('DeprecationWarning: pretrained is deprecated, '
-                          'please use "init_cfg" instead')
+            warnings.warn('DeprecationWarning: pretrained is deprecated, please use "init_cfg" instead')
             self.init_cfg = dict(type='Pretrained', checkpoint=pretrained)
         elif pretrained is not None:
             raise TypeError('pretrained must be a str or None')
@@ -314,20 +426,43 @@ class Thinh(BaseModule):
         self.depths = depths
         self.num_stages = num_stages
 
-        dpr = [
-            x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))
-        ]  # stochastic depth decay rule
+        # Drop path probabilities for stochastic depth
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
         cur = 0
 
+        # Build the stages
         for i in range(num_stages):
             if i == 0:
-                patch_embed = nn.Conv2d(in_channels, embed_dims[i], kernel_size=7, stride=2, padding=3)
+                # Stem block for the first stage
+                patch_embed = StemConv(in_channels, embed_dims[0], norm_cfg=norm_cfg)
             else:
-                patch_embed = nn.Conv2d(embed_dims[i-1], embed_dims[i], kernel_size=3, stride=2, padding=1)
-            
-            block = nn.ModuleList([MSCABlock(embed_dims[i], mlp_ratio=mlp_ratios[i], drop=drop_rate, drop_path=dpr[cur + j]) for j in range(depths[i])])
-            norm = nn.LayerNorm(embed_dims[i])
+                # Overlap patch embedding for subsequent stages
+                patch_embed = OverlapPatchEmbed(
+                    patch_size=3 if i != 0 else 7,
+                    stride=2,
+                    in_channels=embed_dims[i - 1],
+                    embed_dim=embed_dims[i],
+                    norm_cfg=norm_cfg,
+                    kernel_size=3,  # kernel size based on multi-scale approach
+                    dilation=1  # Default dilation, can be adjusted if needed
+                )
 
+            # Multi-Scale Convolutional Attention blocks for each stage
+            block = nn.ModuleList([
+                MSCABlock(
+                    channels=embed_dims[i],
+                    attention_kernel_sizes=attention_kernel_sizes,
+                    attention_kernel_paddings=attention_kernel_paddings,
+                    dilation_rates=dilation_rates,
+                    mlp_ratio=mlp_ratios[i],
+                    drop=drop_rate,
+                    drop_path=dpr[cur + j],
+                    act_cfg=dict(type='GELU'),
+                    norm_cfg=norm_cfg) for j in range(depths[i])
+            ])
+
+            # Normalization for the output of each stage
+            norm = nn.LayerNorm(embed_dims[i])
             cur += depths[i]
 
             setattr(self, f'patch_embed{i + 1}', patch_embed)
@@ -335,9 +470,7 @@ class Thinh(BaseModule):
             setattr(self, f'norm{i + 1}', norm)
 
     def init_weights(self):
-        """Initialize modules of MSCAN."""
-
-        print('init cfg', self.init_cfg)
+        """Initialize the weights of MSCAN."""
         if self.init_cfg is None:
             for m in self.modules():
                 if isinstance(m, nn.Linear):
@@ -345,26 +478,37 @@ class Thinh(BaseModule):
                 elif isinstance(m, nn.LayerNorm):
                     constant_init(m, val=1.0, bias=0.)
                 elif isinstance(m, nn.Conv2d):
-                    fan_out = m.kernel_size[0] * m.kernel_size[
-                        1] * m.out_channels
+                    fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
                     fan_out //= m.groups
-                    normal_init(
-                        m, mean=0, std=math.sqrt(2.0 / fan_out), bias=0)
+                    normal_init(m, mean=0, std=math.sqrt(2.0 / fan_out), bias=0)
         else:
             super().init_weights()
 
     def forward(self, x):
-        B = x.shape[0]
+        """Forward pass through MSCAN backbone."""
+        B = x.shape[0]  # Batch size
         outs = []
 
+        # Forward through each stage
         for i in range(self.num_stages):
             patch_embed = getattr(self, f'patch_embed{i + 1}')
             block = getattr(self, f'block{i + 1}')
             norm = getattr(self, f'norm{i + 1}')
-            x = patch_embed(x)
+
+            # Apply the patch embedding
+            x, H, W = patch_embed(x)
+
+            # Apply each block in the stage
             for blk in block:
-                x = blk(x)
-            x = norm(x.flatten(2).transpose(1, 2)).permute(0, 2, 1).contiguous()
+                x = blk(x, H, W)
+
+            # Apply normalization
+            x = norm(x)
+
+            # Reshape for the next stage
+            x = x.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
+
+            # Append the output of the stage
             outs.append(x)
 
         return outs
