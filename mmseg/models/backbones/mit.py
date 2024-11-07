@@ -93,7 +93,7 @@ class MixFFN(BaseModule):
             groups=in_channels)
         
         drop = nn.Dropout(ffn_drop)
-        layers = [fc1, pe_conv, self.activate, drop, fc2, drop]
+        layers = [fc1, self.activate, drop, fc2, drop]
         self.layers = Sequential(*layers)
         self.dropout_layer = build_dropout(
             dropout_layer) if dropout_layer else torch.nn.Identity()
