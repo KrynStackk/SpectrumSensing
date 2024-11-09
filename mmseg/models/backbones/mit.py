@@ -63,8 +63,8 @@ class MixFFN(BaseModule):
             out_channels=feedforward_channels,
             kernel_size=(1,3),
             stride=1,
-            padding=(0,3),
-            dilation=3,
+            padding=(0,2),
+            dilation=2,
             bias=True,
             groups=in_channels)
         # 3x3 depth wise conv to provide positional encode information
@@ -87,8 +87,8 @@ class MixFFN(BaseModule):
             out_channels=in_channels,
             kernel_size=(3,1),
             stride=1,
-            padding=(3,0),
-            dilation=3,
+            padding=(2,0),
+            dilation=2,
             bias=True,
             groups=in_channels)
         
