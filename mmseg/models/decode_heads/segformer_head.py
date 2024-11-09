@@ -7,46 +7,6 @@ from mmseg.models.decode_heads.decode_head import BaseDecodeHead
 from mmseg.registry import MODELS
 from ..utils import resize
 
-class ASPP(nn.Module):
-    """Atrous Spatial Pyramid Pooling (ASPP) module.
-
-    Args:
-        in_channels (int): Number of input channels.
-        out_channels (int): Number of output channels.
-        atrous_rates (tuple): Dilation rates for the ASPP.
-        dropout (float): Dropout rate. Default: 0.5.
-    """
-
-    def __init__(self, in_channels, out_channels, atrous_rates, dropout=0.1):
-        super(ASPP, self).__init__()
-        self.aspp1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=atrous_rates[0], bias=False)
-        self.aspp2 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[1], dilation=atrous_rates[1], bias=False)
-        self.aspp3 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[2], dilation=atrous_rates[2], bias=False)
-        self.aspp4 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[3], dilation=atrous_rates[3], bias=False)
-        self.global_avg_pool = nn.Sequential(
-            nn.AdaptiveAvgPool2d((1, 1)),
-            nn.Conv2d(in_channels, out_channels, 1, stride=1, bias=False)
-        )
-        self.conv1 = nn.Conv2d(out_channels * 5, out_channels, 1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x):
-        x1 = self.aspp1(x)
-        x2 = self.aspp2(x)
-        x3 = self.aspp3(x)
-        x4 = self.aspp4(x)
-        x5 = self.global_avg_pool(x)
-        x5 = nn.functional.interpolate(x5, size=x4.size()[2:], mode='bilinear', align_corners=True)
-        x = torch.cat((x1, x2, x3, x4, x5), dim=1)
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        return x
-
-
 
 @MODELS.register_module()
 class SegformerHead(BaseDecodeHead):
@@ -78,8 +38,6 @@ class SegformerHead(BaseDecodeHead):
                     stride=1,
                     norm_cfg=self.norm_cfg,
                     act_cfg=self.act_cfg))
-        
-        self.aspp = ASPP(self.channels, self.channels, [1, 6, 12, 18], dropout=0.1)
 
         self.fusion_conv = ConvModule(
             in_channels=self.channels * num_inputs,
@@ -102,7 +60,7 @@ class SegformerHead(BaseDecodeHead):
                     align_corners=self.align_corners))
 
         out = self.fusion_conv(torch.cat(outs, dim=1))
-        out = self.aspp(out)
+
         # out = self.cls_seg(out)
 
         return out
