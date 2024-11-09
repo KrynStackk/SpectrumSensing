@@ -14,7 +14,7 @@ from mmengine.model.weight_init import (constant_init, normal_init,
 
 from mmseg.registry import MODELS
 from ..utils import PatchEmbed, nchw_to_nlc, nlc_to_nchw
-# hello
+
 
 class MixFFN(BaseModule):
     """An implementation of MixFFN of Segformer.
@@ -52,48 +52,29 @@ class MixFFN(BaseModule):
         self.activate = build_activation_layer(act_cfg)
 
         in_channels = embed_dims
-        # fc1 = Conv2d(
-        #     in_channels=in_channels,
-        #     out_channels=feedforward_channels,
-        #     kernel_size=1,
-        #     stride=1,
-        #     bias=True)
-        fc1 = nn.Conv2d(
+        fc1 = Conv2d(
             in_channels=in_channels,
             out_channels=feedforward_channels,
-            kernel_size=(1,3),
+            kernel_size=1,
             stride=1,
-            padding=(0,2),
-            dilation=2,
-            bias=True,
-            groups=in_channels)
+            bias=True)
         # 3x3 depth wise conv to provide positional encode information
-        # pe_conv = Conv2d(
-        #     in_channels=feedforward_channels,
-        #     out_channels=feedforward_channels,
-        #     kernel_size=3,
-        #     stride=1,
-        #     padding=(3 - 1) // 2,
-        #     bias=True,
-        #     groups=feedforward_channels)
-        # fc2 = Conv2d(
-        #     in_channels=feedforward_channels,
-        #     out_channels=in_channels,
-        #     kernel_size=1,
-        #     stride=1,
-        #     bias=True)
-        fc2 = nn.Conv2d(
+        pe_conv = Conv2d(
+            in_channels=feedforward_channels,
+            out_channels=feedforward_channels,
+            kernel_size=3,
+            stride=1,
+            padding=(3 - 1) // 2,
+            bias=True,
+            groups=feedforward_channels)
+        fc2 = Conv2d(
             in_channels=feedforward_channels,
             out_channels=in_channels,
-            kernel_size=(3,1),
+            kernel_size=1,
             stride=1,
-            padding=(2,0),
-            dilation=2,
-            bias=True,
-            groups=in_channels)
-        
+            bias=True)
         drop = nn.Dropout(ffn_drop)
-        layers = [fc1, self.activate, drop, fc2, drop]
+        layers = [fc1, pe_conv, self.activate, drop, fc2, drop]
         self.layers = Sequential(*layers)
         self.dropout_layer = build_dropout(
             dropout_layer) if dropout_layer else torch.nn.Identity()
