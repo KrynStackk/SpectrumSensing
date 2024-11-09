@@ -295,6 +295,48 @@ class TransformerEncoderLayer(BaseModule):
         return x
 
 
+class ASPP(nn.Module):
+    """Atrous Spatial Pyramid Pooling (ASPP) module.
+
+    Args:
+        in_channels (int): Number of input channels.
+        out_channels (int): Number of output channels.
+        atrous_rates (tuple): Dilation rates for the ASPP.
+        dropout (float): Dropout rate. Default: 0.5.
+    """
+
+    def __init__(self, in_channels, out_channels, atrous_rates, dropout=0.1):
+        super(ASPP, self).__init__()
+        self.aspp1 = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=atrous_rates[0], bias=False)
+        self.aspp2 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[1], dilation=atrous_rates[1], bias=False)
+        self.aspp3 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[2], dilation=atrous_rates[2], bias=False)
+        self.aspp4 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=atrous_rates[3], dilation=atrous_rates[3], bias=False)
+        self.global_avg_pool = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Conv2d(in_channels, out_channels, 1, stride=1, bias=False)
+        )
+        self.conv1 = nn.Conv2d(out_channels * 5, out_channels, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, hw_shape):
+        x = nlc_to_nchw(x, hw_shape)
+        x1 = self.aspp1(x)
+        x2 = self.aspp2(x)
+        x3 = self.aspp3(x)
+        x4 = self.aspp4(x)
+        x5 = self.global_avg_pool(x)
+        x5 = nn.functional.interpolate(x5, size=x4.size()[2:], mode='bilinear', align_corners=True)
+        x = torch.cat((x1, x2, x3, x4, x5), dim=1)
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        x = nchw_to_nlc(x)
+        return x
+
+
 @MODELS.register_module()
 class MixVisionTransformer(BaseModule):
     """The backbone of Segformer.
@@ -415,8 +457,9 @@ class MixVisionTransformer(BaseModule):
             ])
             in_channels = embed_dims_i
             # The ret[0] of build_norm_layer is norm name.
+            aspp = ASPP(embed_dims_i, embed_dims_i, [1, 6, 12, 18], dropout=0.1)
             norm = build_norm_layer(norm_cfg, embed_dims_i)[1]
-            self.layers.append(ModuleList([patch_embed, layer, norm]))
+            self.layers.append(ModuleList([patch_embed, layer, aspp, norm]))
             cur += num_layer
 
     def init_weights(self):
@@ -442,7 +485,8 @@ class MixVisionTransformer(BaseModule):
             x, hw_shape = layer[0](x)
             for block in layer[1]:
                 x = block(x, hw_shape)
-            x = layer[2](x)
+            x = layer[2](x, hw_shape)
+            x = layer[3](x)
             x = nlc_to_nchw(x, hw_shape)
             if i in self.out_indices:
                 outs.append(x)
