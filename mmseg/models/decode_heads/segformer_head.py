@@ -69,7 +69,6 @@ class SegformerHead(BaseDecodeHead):
         assert num_inputs == len(self.in_index)
 
         self.convs = nn.ModuleList()
-        self.aspps = nn.ModuleList()
         for i in range(num_inputs):
             self.convs.append(
                 ConvModule(
@@ -79,7 +78,8 @@ class SegformerHead(BaseDecodeHead):
                     stride=1,
                     norm_cfg=self.norm_cfg,
                     act_cfg=self.act_cfg))
-            self.aspps.append(ASPP(self.channels, self.channels, [1, 6, 12, 18], dropout=0.1))
+        
+        self.aspp = ASPP(self.channels, self.channels, [1, 6, 12, 18], dropout=0.1)
 
         self.fusion_conv = ConvModule(
             in_channels=self.channels * num_inputs,
@@ -94,16 +94,15 @@ class SegformerHead(BaseDecodeHead):
         for idx in range(len(inputs)):
             x = inputs[idx]
             conv = self.convs[idx]
-            aspp = self.aspps[idx]
             outs.append(
                 resize(
-                    input=aspp(conv(x)),
+                    input=conv(x),
                     size=inputs[0].shape[2:],
                     mode=self.interpolate_mode,
                     align_corners=self.align_corners))
 
         out = self.fusion_conv(torch.cat(outs, dim=1))
-
+        out = self.aspp(out)
         # out = self.cls_seg(out)
 
         return out
