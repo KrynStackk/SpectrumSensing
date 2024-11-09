@@ -1,29 +1,12 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from mmcv.cnn import ConvModule
 
 from mmseg.models.decode_heads.decode_head import BaseDecodeHead
 from mmseg.registry import MODELS
 from ..utils import resize
 
-class ChannelWiseAttention(nn.Module):
-    def __init__(self, input_dim, squeeze_factor=4):
-        super(ChannelWiseAttention, self).__init__()
-        self.squeeze_dim = input_dim // squeeze_factor
-        self.fc1 = nn.Conv2d(input_dim, self.squeeze_dim, kernel_size=1)
-        self.fc2 = nn.Conv2d(self.squeeze_dim, input_dim, kernel_size=1)
-
-    def forward(self, x):
-        # Global Average Pooling
-        gap = F.adaptive_avg_pool2d(x, (1, 1))
-        # Conv layers
-        squeeze = F.relu(self.fc1(gap))
-        excitation = torch.sigmoid(self.fc2(squeeze))
-        # Scale input
-        output = x * excitation
-        return output
 
 @MODELS.register_module()
 class SegformerHead(BaseDecodeHead):
@@ -56,13 +39,11 @@ class SegformerHead(BaseDecodeHead):
                     norm_cfg=self.norm_cfg,
                     act_cfg=self.act_cfg))
 
-        self.conv1x1= ConvModule(
+        self.fusion_conv = ConvModule(
             in_channels=self.channels * num_inputs,
             out_channels=self.channels,
             kernel_size=1,
             norm_cfg=self.norm_cfg)
-
-        self.channel_wise_attention = ChannelWiseAttention(input_dim=self.channels * num_inputs)
 
     def forward(self, inputs):
         # Receive 4 stage backbone feature map: 1/4, 1/8, 1/16, 1/32
@@ -78,8 +59,7 @@ class SegformerHead(BaseDecodeHead):
                     mode=self.interpolate_mode,
                     align_corners=self.align_corners))
 
-        out = self.channel_wise_attention(torch.cat(outs, dim=1))
-        out = self.conv1x1(out)
+        out = self.fusion_conv(torch.cat(outs, dim=1))
 
         # out = self.cls_seg(out)
 
