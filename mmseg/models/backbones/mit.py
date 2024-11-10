@@ -71,7 +71,7 @@ class MixFFN(BaseModule):
         self.activate = build_activation_layer(act_cfg)
 
         in_channels = embed_dims
-        self.channel_wise_attention = ChannelWiseAttention(in_channels)
+        self.channel_wise_attention = ChannelWiseAttention(feedforward_channels)
 
         self.fc1 = Conv2d(
             in_channels=in_channels,
