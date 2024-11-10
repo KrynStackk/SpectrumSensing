@@ -54,7 +54,8 @@ class MixFFN(BaseModule):
         in_channels = embed_dims
 
         self.conv1 = nn.Conv2d(in_channels, feedforward_channels, kernel_size=3, dilation=2, padding=2, groups=in_channels)
-        self.conv2 = nn.Conv2d(feedforward_channels, in_channels, kernel_size=3, dilation=2, padding=2, groups=in_channels)
+        self.conv2 = nn.Conv2d(feedforward_channels, feedforward_channels, kernel_size=3, dilation=2, padding=2, groups=feedforward_channels)
+        self.conv3 = nn.Conv2d(feedforward_channels, in_channels, kernel_size=1, stride=1, bias=True)
 
 
         # fc1 = Conv2d(
@@ -79,7 +80,7 @@ class MixFFN(BaseModule):
         #     stride=1,
         #     bias=True)
         drop = nn.Dropout(ffn_drop)
-        layers = [self.conv1, self.activate, drop, self.conv2, drop]
+        layers = [self.conv1, self.conv2, self.activate, drop, self.conv3, drop]
         self.layers = Sequential(*layers)
         self.dropout_layer = build_dropout(
             dropout_layer) if dropout_layer else torch.nn.Identity()
