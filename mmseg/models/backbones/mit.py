@@ -64,6 +64,7 @@ class MixFFN(BaseModule):
             kernel_size=(1, 5),
             padding=(0, 2),
             stride=1,
+            groups=in_channels,
             bias=True)
         # # 3x3 depth wise conv to provide positional encode information
         # pe_conv = Conv2d(
@@ -81,10 +82,11 @@ class MixFFN(BaseModule):
         #     stride=1,
         #     bias=True)
         fc2 = Conv2d(
-            in_channels=in_channels,
-            out_channels=feedforward_channels,
+            in_channels=feedforward_channels,
+            out_channels=in_channels,
             kernel_size=(5, 1),
             padding=(2, 0),
+            groups=in_channels,
             stride=1,
             bias=True)
 
