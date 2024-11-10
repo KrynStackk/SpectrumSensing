@@ -52,53 +52,64 @@ class MixFFN(BaseModule):
         self.activate = build_activation_layer(act_cfg)
 
         in_channels = embed_dims
-        # fc1 = Conv2d(
-        #     in_channels=in_channels,
-        #     out_channels=feedforward_channels,
-        #     kernel_size=1,
-        #     stride=1,
-        #     bias=True)
-        fc1 = Conv2d(
+        # Nhánh 1: 1x3 và 3x1 với dilation = 2
+        branch1_conv1 = Conv2d(
+            in_channels=in_channels,
+            out_channels=feedforward_channels,
+            kernel_size=(1, 3),
+            stride=1,
+            padding=(0, 2),
+            dilation=2,
+            groups=in_channels,
+            bias=True)
+        branch1_conv2 = Conv2d(
+            in_channels=feedforward_channels,
+            out_channels=in_channels,
+            kernel_size=(3, 1),
+            stride=1,
+            padding=(2, 0),
+            dilation=2,
+            groups=in_channels,
+            bias=True)
+
+        # Nhánh 2: 1x5 và 5x1
+        branch2_conv1 = Conv2d(
             in_channels=in_channels,
             out_channels=feedforward_channels,
             kernel_size=(1, 5),
-            padding=(0, 2),
             stride=1,
+            padding=(0, 2),
             groups=in_channels,
             bias=True)
-        # # 3x3 depth wise conv to provide positional encode information
-        # pe_conv = Conv2d(
-        #     in_channels=feedforward_channels,
-        #     out_channels=feedforward_channels,
-        #     kernel_size=3,
-        #     stride=1,
-        #     padding=(3 - 1) // 2,
-        #     bias=True,
-        #     groups=feedforward_channels)
-        # fc2 = Conv2d(
-        #     in_channels=feedforward_channels,
-        #     out_channels=in_channels,
-        #     kernel_size=1,
-        #     stride=1,
-        #     bias=True)
-        fc2 = Conv2d(
+        branch2_conv2 = Conv2d(
             in_channels=feedforward_channels,
             out_channels=in_channels,
             kernel_size=(5, 1),
+            stride=1,
             padding=(2, 0),
             groups=in_channels,
-            stride=1,
             bias=True)
 
+        # Kết hợp các nhánh
+        fc2 = Conv2d(
+            in_channels=2 * in_channels,
+            out_channels=in_channels,
+            kernel_size=1,
+            stride=1,
+            bias=True)
         drop = nn.Dropout(ffn_drop)
-        layers = [fc1, self.activate, drop, fc2, drop]
-        self.layers = Sequential(*layers)
+        self.branch1 = Sequential(branch1_conv1, self.activate, branch1_conv2, drop)
+        self.branch2 = Sequential(branch2_conv1, self.activate, branch2_conv2, drop)
+        self.fc2 = Sequential(fc2, drop)
         self.dropout_layer = build_dropout(
             dropout_layer) if dropout_layer else torch.nn.Identity()
 
     def forward(self, x, hw_shape, identity=None):
         out = nlc_to_nchw(x, hw_shape)
-        out = self.layers(out)
+        out1 = self.branch1(out)
+        out2 = self.branch2(out)
+        out = torch.cat([out1, out2], dim=1)  # Kết hợp đầu ra từ hai nhánh
+        out = self.fc2(out)
         out = nchw_to_nlc(out)
         if identity is None:
             identity = x
