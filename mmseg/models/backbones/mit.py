@@ -52,18 +52,35 @@ class MixFFN(BaseModule):
         self.activate = build_activation_layer(act_cfg)
 
         in_channels = embed_dims
+        fc1 = Conv2d(
+            in_channels=in_channels,
+            out_channels=feedforward_channels,
+            kernel_size=1,
+            stride=1,
+            bias=True)
+        
+        # Axial Convolution theo chiều ngang với dilation
+        self.horizontal_conv = Conv2d(
+            in_channels=feedforward_channels,
+            out_channels=feedforward_channels,
+            kernel_size=(1, 3),
+            stride=1,
+            padding=(0, 2),
+            dilation=(1, 2),
+            bias=True,
+            groups=feedforward_channels)
+        
+        # Axial Convolution theo chiều dọc với dilation
+        self.vertical_conv = Conv2d(
+            in_channels=feedforward_channels,
+            out_channels=feedforward_channels,
+            kernel_size=(3, 1),
+            stride=1,
+            padding=(2, 0),
+            dilation=(2, 1),
+            bias=True,
+            groups=feedforward_channels)
 
-        self.conv1 = nn.Conv2d(in_channels, feedforward_channels, kernel_size=3, dilation=2, padding=2, groups=in_channels)
-        self.conv2 = nn.Conv2d(feedforward_channels, feedforward_channels, kernel_size=3, dilation=2, padding=2, groups=feedforward_channels)
-        self.conv3 = nn.Conv2d(feedforward_channels, in_channels, kernel_size=1, stride=1, bias=True)
-
-
-        # fc1 = Conv2d(
-        #     in_channels=in_channels,
-        #     out_channels=feedforward_channels,
-        #     kernel_size=1,
-        #     stride=1,
-        #     bias=True)
         # # 3x3 depth wise conv to provide positional encode information
         # pe_conv = Conv2d(
         #     in_channels=feedforward_channels,
@@ -73,21 +90,31 @@ class MixFFN(BaseModule):
         #     padding=(3 - 1) // 2,
         #     bias=True,
         #     groups=feedforward_channels)
-        # fc2 = Conv2d(
-        #     in_channels=feedforward_channels,
-        #     out_channels=in_channels,
-        #     kernel_size=1,
-        #     stride=1,
-        #     bias=True)
+        fc2 = Conv2d(
+            in_channels=feedforward_channels,
+            out_channels=in_channels,
+            kernel_size=1,
+            stride=1,
+            bias=True)
         drop = nn.Dropout(ffn_drop)
-        layers = [self.conv1, self.conv2, self.activate, drop, self.conv3, drop]
-        self.layers = Sequential(*layers)
+        # layers = [fc1, pe_conv, self.activate, drop, fc2, drop]
+        # self.layers = Sequential(*layers)
         self.dropout_layer = build_dropout(
             dropout_layer) if dropout_layer else torch.nn.Identity()
 
     def forward(self, x, hw_shape, identity=None):
         out = nlc_to_nchw(x, hw_shape)
-        out = self.layers(out)
+        out = self.fc1(out)
+
+        outh = self.horizontal_conv(out)
+        outv = self.vertical_conv(out)
+        out = outh + outv
+        
+        out = self.activate(out)
+        out = self.drop(out)
+        out = self.fc2(out)
+        out = self.drop(out)
+        # out = self.layers(out)
         out = nchw_to_nlc(out)
         if identity is None:
             identity = x
