@@ -16,6 +16,25 @@ from mmseg.registry import MODELS
 from ..utils import PatchEmbed, nchw_to_nlc, nlc_to_nchw
 
 
+class ChannelWiseAttention(nn.Module):
+    def __init__(self, embed_dims):
+        super(ChannelWiseAttention, self).__init__()
+        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc1 = nn.Conv2d(embed_dims, embed_dims // 4, 1, bias=False)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Conv2d(embed_dims // 4, embed_dims, 1, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # x: (batch, channels, height, width)
+        y = self.global_avg_pool(x)
+        y = self.fc1(y)
+        y = self.relu(y)
+        y = self.fc2(y)
+        y = self.sigmoid(y)
+        return x * y
+
+
 class MixFFN(BaseModule):
     """An implementation of MixFFN of Segformer.
 
@@ -52,67 +71,57 @@ class MixFFN(BaseModule):
         self.activate = build_activation_layer(act_cfg)
 
         in_channels = embed_dims
-        # Nhánh 1: 1x3 và 3x1 với dilation = 2
-        branch1_conv1 = Conv2d(
+        self.channel_wise_attention = ChannelWiseAttention(in_channels)
+
+        self.fc1 = Conv2d(
             in_channels=in_channels,
             out_channels=feedforward_channels,
-            kernel_size=(1, 3),
+            kernel_size=1,
             stride=1,
-            padding=(0, 2),
-            dilation=2,
-            groups=in_channels,
             bias=True)
-        branch1_conv2 = Conv2d(
+        
+        self.pe_conv = Conv2d(
             in_channels=feedforward_channels,
-            out_channels=in_channels,
-            kernel_size=(3, 1),
-            stride=1,
-            padding=(2, 0),
-            dilation=2,
-            groups=in_channels,
-            bias=True)
-
-        # Nhánh 2: 1x5 và 5x1
-        branch2_conv1 = Conv2d(
-            in_channels=in_channels,
             out_channels=feedforward_channels,
-            kernel_size=(1, 5),
+            kernel_size=5,
             stride=1,
-            padding=(0, 2),
-            groups=in_channels,
-            bias=True)
-        branch2_conv2 = Conv2d(
+            padding=(5 - 1) // 2,
+            bias=True,
+            groups=feedforward_channels)
+        
+        self.fc2 = Conv2d(
             in_channels=feedforward_channels,
-            out_channels=in_channels,
-            kernel_size=(5, 1),
-            stride=1,
-            padding=(2, 0),
-            groups=in_channels,
-            bias=True)
-
-        # Kết hợp các nhánh
-        fc2 = Conv2d(
-            in_channels=2 * in_channels,
             out_channels=in_channels,
             kernel_size=1,
             stride=1,
             bias=True)
-        drop = nn.Dropout(ffn_drop)
-        self.branch1 = Sequential(branch1_conv1, self.activate, branch1_conv2, drop)
-        self.branch2 = Sequential(branch2_conv1, self.activate, branch2_conv2, drop)
-        self.fc2 = Sequential(fc2, drop)
+        
+        self.drop = nn.Dropout(ffn_drop)
+        
+        self.layers = Sequential(self.fc1, self.pe_conv, self.activate)
+
         self.dropout_layer = build_dropout(
             dropout_layer) if dropout_layer else torch.nn.Identity()
 
     def forward(self, x, hw_shape, identity=None):
         out = nlc_to_nchw(x, hw_shape)
-        out1 = self.branch1(out)
-        out2 = self.branch2(out)
-        out = torch.cat([out1, out2], dim=1)  # Kết hợp đầu ra từ hai nhánh
+        
+        out = self.layers(out)
+        out = self.drop(out)
+        
+        attention_out = self.channel_wise_attention(out)
+        
+        
+        out = out * attention_out
+        
         out = self.fc2(out)
+        out = self.drop(out)
+        
         out = nchw_to_nlc(out)
+        
         if identity is None:
             identity = x
+        
         return identity + self.dropout_layer(out)
 
 
