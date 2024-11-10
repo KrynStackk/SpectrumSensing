@@ -52,7 +52,7 @@ class MixFFN(BaseModule):
         self.activate = build_activation_layer(act_cfg)
 
         in_channels = embed_dims
-        fc1 = Conv2d(
+        self.fc1 = Conv2d(
             in_channels=in_channels,
             out_channels=feedforward_channels,
             kernel_size=1,
@@ -90,13 +90,13 @@ class MixFFN(BaseModule):
         #     padding=(3 - 1) // 2,
         #     bias=True,
         #     groups=feedforward_channels)
-        fc2 = Conv2d(
+        self.fc2 = Conv2d(
             in_channels=feedforward_channels,
             out_channels=in_channels,
             kernel_size=1,
             stride=1,
             bias=True)
-        drop = nn.Dropout(ffn_drop)
+        self.drop = nn.Dropout(ffn_drop)
         # layers = [fc1, pe_conv, self.activate, drop, fc2, drop]
         # self.layers = Sequential(*layers)
         self.dropout_layer = build_dropout(
@@ -109,7 +109,7 @@ class MixFFN(BaseModule):
         outh = self.horizontal_conv(out)
         outv = self.vertical_conv(out)
         out = outh + outv
-        
+
         out = self.activate(out)
         out = self.drop(out)
         out = self.fc2(out)
