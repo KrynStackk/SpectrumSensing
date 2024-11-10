@@ -16,25 +16,6 @@ from mmseg.registry import MODELS
 from ..utils import PatchEmbed, nchw_to_nlc, nlc_to_nchw
 
 
-class ChannelWiseAttention(nn.Module):
-    def __init__(self, embed_dims):
-        super(ChannelWiseAttention, self).__init__()
-        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Conv2d(embed_dims, embed_dims // 4, 1, bias=False)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Conv2d(embed_dims // 4, embed_dims, 1, bias=False)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        # x: (batch, channels, height, width)
-        y = self.global_avg_pool(x)
-        y = self.fc1(y)
-        y = self.relu(y)
-        y = self.fc2(y)
-        y = self.sigmoid(y)
-        return x * y
-
-
 class MixFFN(BaseModule):
     """An implementation of MixFFN of Segformer.
 
@@ -71,57 +52,44 @@ class MixFFN(BaseModule):
         self.activate = build_activation_layer(act_cfg)
 
         in_channels = embed_dims
-        self.channel_wise_attention = ChannelWiseAttention(feedforward_channels)
 
-        self.fc1 = Conv2d(
-            in_channels=in_channels,
-            out_channels=feedforward_channels,
-            kernel_size=1,
-            stride=1,
-            bias=True)
-        
-        self.pe_conv = Conv2d(
-            in_channels=feedforward_channels,
-            out_channels=feedforward_channels,
-            kernel_size=5,
-            stride=1,
-            padding=(5 - 1) // 2,
-            bias=True,
-            groups=feedforward_channels)
-        
-        self.fc2 = Conv2d(
-            in_channels=feedforward_channels,
-            out_channels=in_channels,
-            kernel_size=1,
-            stride=1,
-            bias=True)
-        
-        self.drop = nn.Dropout(ffn_drop)
-        
-        self.layers = Sequential(self.fc1, self.pe_conv, self.activate)
+        self.conv1 = nn.Conv2d(in_channels, feedforward_channels, kernel_size=3, dilation=2, padding=2, groups=in_channels)
+        self.conv2 = nn.Conv2d(feedforward_channels, in_channels, kernel_size=3, dilation=2, padding=2, groups=in_channels)
 
+
+        # fc1 = Conv2d(
+        #     in_channels=in_channels,
+        #     out_channels=feedforward_channels,
+        #     kernel_size=1,
+        #     stride=1,
+        #     bias=True)
+        # # 3x3 depth wise conv to provide positional encode information
+        # pe_conv = Conv2d(
+        #     in_channels=feedforward_channels,
+        #     out_channels=feedforward_channels,
+        #     kernel_size=3,
+        #     stride=1,
+        #     padding=(3 - 1) // 2,
+        #     bias=True,
+        #     groups=feedforward_channels)
+        # fc2 = Conv2d(
+        #     in_channels=feedforward_channels,
+        #     out_channels=in_channels,
+        #     kernel_size=1,
+        #     stride=1,
+        #     bias=True)
+        drop = nn.Dropout(ffn_drop)
+        layers = [self.conv1, self.activate, drop, self.conv2, drop]
+        self.layers = Sequential(*layers)
         self.dropout_layer = build_dropout(
             dropout_layer) if dropout_layer else torch.nn.Identity()
 
     def forward(self, x, hw_shape, identity=None):
         out = nlc_to_nchw(x, hw_shape)
-        
         out = self.layers(out)
-        out = self.drop(out)
-        
-        attention_out = self.channel_wise_attention(out)
-        
-        
-        out = out * attention_out
-        
-        out = self.fc2(out)
-        out = self.drop(out)
-        
         out = nchw_to_nlc(out)
-        
         if identity is None:
             identity = x
-        
         return identity + self.dropout_layer(out)
 
 
