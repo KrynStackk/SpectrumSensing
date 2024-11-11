@@ -105,4 +105,4 @@ class SegformerHead(BaseDecodeHead):
         out = self.aspp(out)
         # out = self.cls_seg(out)
 
-        return out, intputs[2], inputs[3]
+        return out, inputs[2], inputs[3]
