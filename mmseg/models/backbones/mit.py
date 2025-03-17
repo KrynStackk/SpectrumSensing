@@ -17,12 +17,13 @@ from ..utils import PatchEmbed, nchw_to_nlc, nlc_to_nchw
 
 
 class StandardFFN(nn.Module):
-    def __init__(self, d_model, hidden, drop_prob=0.1):
+    def __init__(self, embed_dims, feedforward_channels, act_cfg=dict(type='GELU'), ffn_drop=0.,
+                 dropout_layer=None, init_cfg=None):
         super(StandardFFN, self).__init__()
-        self.linear1 = nn.Linear(d_model, hidden)
-        self.linear2 = nn.Linear(hidden, d_model)
+        self.linear1 = nn.Linear(embed_dims, feedforward_channels)
+        self.linear2 = nn.Linear(feedforward_channels, embed_dims)
         self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(p=drop_prob)
+        self.dropout = nn.Dropout(p=ffn_drop)
 
     def forward(self, x):
         x = self.linear1(x)
@@ -391,7 +392,7 @@ class TransformerEncoderLayer(BaseModule):
         # The ret[0] of build_norm_layer is norm name.
         self.norm2 = build_norm_layer(norm_cfg, embed_dims)[1]
 
-        self.ffn = SegFormerFFN(
+        self.ffn = StandardFFN(
             embed_dims=embed_dims,
             feedforward_channels=feedforward_channels,
             ffn_drop=drop_rate,
