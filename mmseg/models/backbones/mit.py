@@ -25,7 +25,7 @@ class StandardFFN(nn.Module):
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(p=ffn_drop)
 
-    def forward(self, x, identity=None):
+    def forward(self, x, hw_shape, identity=None):
         out = self.linear1(x)
         out = self.relu(out)
         out = self.dropout(out)
