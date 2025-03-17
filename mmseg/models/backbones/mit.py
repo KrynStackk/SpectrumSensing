@@ -26,11 +26,13 @@ class StandardFFN(nn.Module):
         self.dropout = nn.Dropout(p=ffn_drop)
 
     def forward(self, x):
-        x = self.linear1(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        x = self.linear2(x)
-        return x
+        out = self.linear1(x)
+        out = self.relu(out)
+        out = self.dropout(out)
+        out = self.linear2(out)
+        if identity is None:
+            identity = x
+        return identity + out
 
 class SegFormerFFN(BaseModule):
     """An implementation of MixFFN of Segformer.
