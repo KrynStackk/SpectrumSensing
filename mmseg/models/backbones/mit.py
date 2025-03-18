@@ -105,12 +105,10 @@ class SegFormerFFN(BaseModule):
             identity = x
         return identity + self.dropout_layer(out)
 
-class MixFFN(BaseModule):
-    """An implementation of MixFFN of Segformer.
-
-    The differences between MixFFN & FFN:
-        1. Use 1X1 Conv to replace Linear layer.
-        2. Introduce 3X3 Conv to encode positional information.
+class DualAxisFFN(BaseModule):
+    """
+    The differences between DualAxisFFN & MixFFN:
+        1. Introduce 1X3 and 3X1 Conv to encode positional information.
     Args:
         embed_dims (int): The feature dimension. Same as
             `MultiheadAttention`. Defaults: 256.
@@ -394,7 +392,7 @@ class TransformerEncoderLayer(BaseModule):
         # The ret[0] of build_norm_layer is norm name.
         self.norm2 = build_norm_layer(norm_cfg, embed_dims)[1]
 
-        self.ffn = StandardFFN(
+        self.ffn = DualAxisFFN(
             embed_dims=embed_dims,
             feedforward_channels=feedforward_channels,
             ffn_drop=drop_rate,
