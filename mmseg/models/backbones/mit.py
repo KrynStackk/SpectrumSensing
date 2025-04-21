@@ -16,96 +16,96 @@ from mmseg.registry import MODELS
 from ..utils import PatchEmbed, nchw_to_nlc, nlc_to_nchw
 
 
-class StandardFFN(nn.Module):
-    def __init__(self, embed_dims, feedforward_channels, act_cfg=dict(type='GELU'), ffn_drop=0.,
-                 dropout_layer=None, init_cfg=None):
-        super(StandardFFN, self).__init__()
-        self.linear1 = nn.Linear(embed_dims, feedforward_channels)
-        self.linear2 = nn.Linear(feedforward_channels, embed_dims)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(p=ffn_drop)
+# class StandardFFN(nn.Module):
+#     def __init__(self, embed_dims, feedforward_channels, act_cfg=dict(type='GELU'), ffn_drop=0.,
+#                  dropout_layer=None, init_cfg=None):
+#         super(StandardFFN, self).__init__()
+#         self.linear1 = nn.Linear(embed_dims, feedforward_channels)
+#         self.linear2 = nn.Linear(feedforward_channels, embed_dims)
+#         self.relu = nn.ReLU()
+#         self.dropout = nn.Dropout(p=ffn_drop)
 
-    def forward(self, x, hw_shape, identity=None):
-        out = self.linear1(x)
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.linear2(out)
-        if identity is None:
-            identity = x
-        return identity + out
+#     def forward(self, x, hw_shape, identity=None):
+#         out = self.linear1(x)
+#         out = self.relu(out)
+#         out = self.dropout(out)
+#         out = self.linear2(out)
+#         if identity is None:
+#             identity = x
+#         return identity + out
 
-class SegFormerFFN(BaseModule):
-    """An implementation of MixFFN of Segformer.
+# class SegFormerFFN(BaseModule):
+#     """An implementation of MixFFN of Segformer.
 
-    The differences between MixFFN & FFN:
-        1. Use 1X1 Conv to replace Linear layer.
-        2. Introduce 3X3 Conv to encode positional information.
-    Args:
-        embed_dims (int): The feature dimension. Same as
-            `MultiheadAttention`. Defaults: 256.
-        feedforward_channels (int): The hidden dimension of FFNs.
-            Defaults: 1024.
-        act_cfg (dict, optional): The activation config for FFNs.
-            Default: dict(type='ReLU')
-        ffn_drop (float, optional): Probability of an element to be
-            zeroed in FFN. Default 0.0.
-        dropout_layer (obj:`ConfigDict`): The dropout_layer used
-            when adding the shortcut.
-        init_cfg (obj:`mmcv.ConfigDict`): The Config for initialization.
-            Default: None.
-    """
+#     The differences between MixFFN & FFN:
+#         1. Use 1X1 Conv to replace Linear layer.
+#         2. Introduce 3X3 Conv to encode positional information.
+#     Args:
+#         embed_dims (int): The feature dimension. Same as
+#             `MultiheadAttention`. Defaults: 256.
+#         feedforward_channels (int): The hidden dimension of FFNs.
+#             Defaults: 1024.
+#         act_cfg (dict, optional): The activation config for FFNs.
+#             Default: dict(type='ReLU')
+#         ffn_drop (float, optional): Probability of an element to be
+#             zeroed in FFN. Default 0.0.
+#         dropout_layer (obj:`ConfigDict`): The dropout_layer used
+#             when adding the shortcut.
+#         init_cfg (obj:`mmcv.ConfigDict`): The Config for initialization.
+#             Default: None.
+#     """
 
-    def __init__(self,
-                 embed_dims,
-                 feedforward_channels,
-                 act_cfg=dict(type='GELU'),
-                 ffn_drop=0.,
-                 dropout_layer=None,
-                 init_cfg=None):
-        super().__init__(init_cfg)
+#     def __init__(self,
+#                  embed_dims,
+#                  feedforward_channels,
+#                  act_cfg=dict(type='GELU'),
+#                  ffn_drop=0.,
+#                  dropout_layer=None,
+#                  init_cfg=None):
+#         super().__init__(init_cfg)
 
-        self.embed_dims = embed_dims
-        self.feedforward_channels = feedforward_channels
-        self.act_cfg = act_cfg
-        self.activate = build_activation_layer(act_cfg)
+#         self.embed_dims = embed_dims
+#         self.feedforward_channels = feedforward_channels
+#         self.act_cfg = act_cfg
+#         self.activate = build_activation_layer(act_cfg)
 
-        in_channels = embed_dims
-        fc1 = Conv2d(
-            in_channels=in_channels,
-            out_channels=feedforward_channels,
-            kernel_size=1,
-            stride=1,
-            bias=True)
-        # 3x3 depth wise conv to provide positional encode information
-        pe_conv = Conv2d(
-            in_channels=feedforward_channels,
-            out_channels=feedforward_channels,
-            kernel_size=3,
-            stride=1,
-            padding=(3 - 1) // 2,
-            bias=True,
-            groups=feedforward_channels)
-        fc2 = Conv2d(
-            in_channels=feedforward_channels,
-            out_channels=in_channels,
-            kernel_size=1,
-            stride=1,
-            bias=True)
-        drop = nn.Dropout(ffn_drop)
-        layers = [fc1, pe_conv, self.activate, drop, fc2, drop]
-        self.layers = Sequential(*layers)
-        self.dropout_layer = build_dropout(
-            dropout_layer) if dropout_layer else torch.nn.Identity()
+#         in_channels = embed_dims
+#         fc1 = Conv2d(
+#             in_channels=in_channels,
+#             out_channels=feedforward_channels,
+#             kernel_size=1,
+#             stride=1,
+#             bias=True)
+#         # 3x3 depth wise conv to provide positional encode information
+#         pe_conv = Conv2d(
+#             in_channels=feedforward_channels,
+#             out_channels=feedforward_channels,
+#             kernel_size=3,
+#             stride=1,
+#             padding=(3 - 1) // 2,
+#             bias=True,
+#             groups=feedforward_channels)
+#         fc2 = Conv2d(
+#             in_channels=feedforward_channels,
+#             out_channels=in_channels,
+#             kernel_size=1,
+#             stride=1,
+#             bias=True)
+#         drop = nn.Dropout(ffn_drop)
+#         layers = [fc1, pe_conv, self.activate, drop, fc2, drop]
+#         self.layers = Sequential(*layers)
+#         self.dropout_layer = build_dropout(
+#             dropout_layer) if dropout_layer else torch.nn.Identity()
 
-    def forward(self, x, hw_shape, identity=None):
-        out = nlc_to_nchw(x, hw_shape)
-        out = self.layers(out)
-        out = nchw_to_nlc(out)
-        if identity is None:
-            identity = x
-        return identity + self.dropout_layer(out)
+#     def forward(self, x, hw_shape, identity=None):
+#         out = nlc_to_nchw(x, hw_shape)
+#         out = self.layers(out)
+#         out = nchw_to_nlc(out)
+#         if identity is None:
+#             identity = x
+#         return identity + self.dropout_layer(out)
 
-class DualAxisFFN(BaseModule):
+class MixFFN(BaseModule):
     """
     The differences between DualAxisFFN & MixFFN:
         1. Introduce 1X3 and 3X1 Conv to encode positional information.
@@ -392,7 +392,7 @@ class TransformerEncoderLayer(BaseModule):
         # The ret[0] of build_norm_layer is norm name.
         self.norm2 = build_norm_layer(norm_cfg, embed_dims)[1]
 
-        self.ffn = DualAxisFFN(
+        self.ffn = MixFFN(
             embed_dims=embed_dims,
             feedforward_channels=feedforward_channels,
             ffn_drop=drop_rate,
